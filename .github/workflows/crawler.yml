@@ -1,0 +1,42 @@
+name: Fellkost Produkt-Crawler
+
+on:
+  # Automatisch jeden Montag um 6:00 Uhr morgens
+  schedule:
+    - cron: '0 6 * * 1'
+  
+  # Manuell starten (über GitHub-Website mit einem Klick)
+  workflow_dispatch:
+
+jobs:
+  crawlen:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Repository herunterladen
+      - name: Repository laden
+        uses: actions/checkout@v4
+
+      # 2. Python einrichten
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Benötigte Bibliotheken installieren
+      - name: Bibliotheken installieren
+        run: |
+          pip install requests beautifulsoup4 lxml
+
+      # 4. Crawler ausführen
+      - name: Crawler starten
+        run: python fellkost_crawler.py
+
+      # 5. Ergebnisse in GitHub speichern
+      - name: Daten in GitHub speichern
+        run: |
+          git config --local user.email "crawler@fellkost.de"
+          git config --local user.name "Fellkost Crawler"
+          git add daten/
+          git diff --staged --quiet || git commit -m "Produktdaten aktualisiert: $(date '+%d.%m.%Y %H:%M')"
+          git push
