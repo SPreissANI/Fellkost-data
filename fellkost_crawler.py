@@ -1,8 +1,7 @@
 """
-Fellkost.de Produktcrawler
---------------------------
-Liest Produktdaten von fellkost.de und speichert sie als JSON-Dateien.
-Diese Dateien werden dann automatisch in GitHub gespeichert.
+Fellkost.de Produktcrawler - Version 2
+---------------------------------------
+Nutzt die echte Anifit Partner-URL-Struktur mit Partner-ID 466587
 """
 
 import requests
@@ -12,32 +11,37 @@ import os
 from datetime import datetime
 
 # ── Konfiguration ──────────────────────────────────────────────────────────────
-BASE_URL = "https://www.fellkost.de"
+PARTNER_ID = "466587"
+BASE_URL = f"https://www.fellkost.de/content/partners/{PARTNER_ID}"
 
+# Echte Anifit Kategorie-IDs (Standard für alle Partnershops)
 KATEGORIEN = {
-    "hund_nassfutter":   "/content/partners/produkte/?category=hund&sub=nassfutter",
-    "hund_barf":         "/content/partners/produkte/?category=hund&sub=barf",
-    "hund_flocken":      "/content/partners/produkte/?category=hund&sub=flocken",
-    "hund_snacks":       "/content/partners/produkte/?category=hund&sub=snacks",
-    "hund_ernaehrung":   "/content/partners/produkte/?category=hund&sub=nahrungsergaenzung",
-    "katze_nassfutter":  "/content/partners/produkte/?category=katze&sub=nassfutter",
-    "katze_barf":        "/content/partners/produkte/?category=katze&sub=barf",
-    "katze_snacks":      "/content/partners/produkte/?category=katze&sub=snacks",
-    "katze_ernaehrung":  "/content/partners/produkte/?category=katze&sub=nahrungsergaenzung",
+    "hund_alle":        f"{BASE_URL}/shop/shop/?lang=ger&category=62182",
+    "hund_nassfutter":  f"{BASE_URL}/shop/shop/?lang=ger&category=62183",
+    "hund_barf":        f"{BASE_URL}/shop/shop/?lang=ger&category=62184",
+    "hund_flocken":     f"{BASE_URL}/shop/shop/?lang=ger&category=62185",
+    "hund_snacks":      f"{BASE_URL}/shop/shop/?lang=ger&category=62186",
+    "hund_ernaehrung":  f"{BASE_URL}/shop/shop/?lang=ger&category=62187",
+    "katze_alle":       f"{BASE_URL}/shop/shop/?lang=ger&category=62196",
+    "katze_nassfutter": f"{BASE_URL}/shop/shop/?lang=ger&category=62197",
+    "katze_barf":       f"{BASE_URL}/shop/shop/?lang=ger&category=62198",
+    "katze_snacks":     f"{BASE_URL}/shop/shop/?lang=ger&category=62199",
+    "katze_ernaehrung": f"{BASE_URL}/shop/shop/?lang=ger&category=62200",
 }
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; FellkostBot/1.0; +https://fellkost.de)"
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept-Language": "de-DE,de;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 
-OUTPUT_DIR = "daten"  # Ordner wo die JSON-Dateien gespeichert werden
+OUTPUT_DIR = "daten"
 
 # ── Hilfsfunktionen ────────────────────────────────────────────────────────────
 
 def seite_laden(url):
-    """Lädt eine Webseite und gibt das BeautifulSoup-Objekt zurück."""
     try:
-        response = requests.get(url, headers=HEADERS, timeout=15)
+        response = requests.get(url, headers=HEADERS, timeout=20)
         response.raise_for_status()
         return BeautifulSoup(response.text, "html.parser")
     except requests.RequestException as e:
@@ -45,69 +49,70 @@ def seite_laden(url):
         return None
 
 
-def produkte_aus_seite_lesen(soup, kategorie):
-    """Liest Produktdaten aus einer geparsten Seite."""
+def produkte_lesen(soup, kategorie):
     produkte = []
+    if not soup:
+        return produkte
 
-    # Anifit-Shops nutzen typischerweise .product-item oder ähnliche Klassen
-    # Wir versuchen mehrere gängige Selektoren
+    # Anifit nutzt typischerweise diese Selektoren
     selektoren = [
-        "div.product-item",
-        "div.product",
-        "li.product",
-        "article.product",
-        ".product-list-item",
-        ".item-product",
+        ".article-item",
+        ".product-item",
+        ".shop-item",
+        "div[class*='article']",
+        "div[class*='product']",
+        "li[class*='article']",
+        "li[class*='product']",
+        ".item",
     ]
 
     items = []
     for sel in selektoren:
         items = soup.select(sel)
-        if items:
+        if len(items) > 2:
+            print(f"   → Selektor '{sel}' gefunden: {len(items)} Einträge")
             break
 
-    # Fallback: alle Links mit Produktnamen suchen
+    # Fallback: alle Artikellinks direkt suchen
     if not items:
-        # Versuche Produktnamen direkt aus Überschriften zu lesen
-        for tag in soup.select("h2, h3, .product-name, .item-name"):
-            name = tag.get_text(strip=True)
-            if name and len(name) > 3:
+        links = soup.select(f"a[href*='/shop/article/']")
+        print(f"   → Fallback: {len(links)} Artikellinks gefunden")
+        for link in links:
+            name = link.get_text(strip=True)
+            href = link.get("href", "")
+            url = f"https://www.fellkost.de{href}" if href.startswith("/") else href
+            if name and len(name) > 2:
                 produkte.append({
                     "name": name,
                     "kategorie": kategorie,
                     "preis": None,
                     "beschreibung": None,
-                    "url": None,
+                    "url": url,
                     "gescannt_am": datetime.now().isoformat()
                 })
         return produkte
 
     for item in items:
-        # Name
-        name_tag = item.select_one("h2, h3, .product-name, .item-title, .name")
-        name = name_tag.get_text(strip=True) if name_tag else "Unbekannt"
+        name_tag = item.select_one("h2, h3, h4, .name, .title, .article-name, .product-name")
+        name = name_tag.get_text(strip=True) if name_tag else ""
 
-        # Preis
-        preis_tag = item.select_one(".price, .product-price, .item-price, [class*='price']")
+        preis_tag = item.select_one(".price, .artikel-preis, [class*='price']")
         preis = preis_tag.get_text(strip=True) if preis_tag else None
 
-        # Beschreibung
-        beschr_tag = item.select_one(".description, .product-description, p")
-        beschreibung = beschr_tag.get_text(strip=True) if beschr_tag else None
+        beschr_tag = item.select_one(".description, .short-desc, p")
+        beschreibung = beschr_tag.get_text(strip=True)[:200] if beschr_tag else None
 
-        # Link
         link_tag = item.select_one("a[href]")
-        url = BASE_URL + link_tag["href"] if link_tag and link_tag["href"].startswith("/") else (
-            link_tag["href"] if link_tag else None
-        )
+        href = link_tag["href"] if link_tag else ""
+        url = f"https://www.fellkost.de{href}" if href.startswith("/") else href
 
-        if name and name != "Unbekannt":
+        if name:
             produkte.append({
                 "name": name,
                 "kategorie": kategorie,
                 "preis": preis,
                 "beschreibung": beschreibung,
-                "url": url,
+                "url": url or None,
                 "gescannt_am": datetime.now().isoformat()
             })
 
@@ -117,102 +122,73 @@ def produkte_aus_seite_lesen(soup, kategorie):
 # ── Hauptprogramm ──────────────────────────────────────────────────────────────
 
 def crawlen():
-    print("🐾 Fellkost Crawler startet...")
+    print("🐾 Fellkost Crawler v2 startet...")
+    print(f"   Partner-ID: {PARTNER_ID}")
     print(f"   Zeitstempel: {datetime.now().strftime('%d.%m.%Y %H:%M')}\n")
 
     alle_produkte = []
     ergebnisse = {}
 
-    # Zuerst die Hauptproduktseite laden (beste Datenquelle)
-    haupt_url = f"{BASE_URL}/content/partners/produkte/"
-    print(f"📥 Lade Hauptproduktseite: {haupt_url}")
-    soup = seite_laden(haupt_url)
-
-    if soup:
-        # Alle Produktlinks sammeln
-        alle_links = soup.select("a[href*='/produkte/']")
-        print(f"   → {len(alle_links)} Produktlinks gefunden")
-
-        # Produktnamen direkt von der Übersichtsseite
-        produkte_haupt = produkte_aus_seite_lesen(soup, "alle")
-        print(f"   → {len(produkte_haupt)} Produkte auf Hauptseite erkannt")
-        alle_produkte.extend(produkte_haupt)
-
-    # Einzelne Kategorieseiten
-    for kat_name, kat_pfad in KATEGORIEN.items():
-        url = BASE_URL + kat_pfad
-        print(f"\n📥 Lade Kategorie '{kat_name}': {url}")
+    for kat_name, url in KATEGORIEN.items():
+        print(f"\n📥 Lade: {kat_name}")
+        print(f"   URL: {url}")
         soup = seite_laden(url)
 
         if soup:
-            produkte = produkte_aus_seite_lesen(soup, kat_name)
+            # Debug: HTML-Schnipsel ausgeben
+            body = soup.find("body")
+            if body:
+                text = body.get_text(separator=" ", strip=True)[:300]
+                print(f"   Seiteninhalt (Anfang): {text}")
+
+            produkte = produkte_lesen(soup, kat_name)
             print(f"   → {len(produkte)} Produkte gefunden")
             ergebnisse[kat_name] = produkte
             alle_produkte.extend(produkte)
         else:
             ergebnisse[kat_name] = []
 
-    # Duplikate entfernen (nach Name)
+    # Duplikate entfernen
     gesehen = set()
-    unique_produkte = []
+    unique = []
     for p in alle_produkte:
-        if p["name"] not in gesehen:
-            gesehen.add(p["name"])
-            unique_produkte.append(p)
+        key = p["name"] + str(p.get("url", ""))
+        if key not in gesehen:
+            gesehen.add(key)
+            unique.append(p)
 
-    print(f"\n✅ Gesamt: {len(unique_produkte)} unique Produkte gefunden")
+    print(f"\n✅ Gesamt: {len(unique)} unique Produkte")
 
-    # ── JSON-Dateien speichern ─────────────────────────────────────────────────
+    # Speichern
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 1. Alle Produkte zusammen
-    gesamt_datei = os.path.join(OUTPUT_DIR, "alle_produkte.json")
-    with open(gesamt_datei, "w", encoding="utf-8") as f:
+    with open(f"{OUTPUT_DIR}/alle_produkte.json", "w", encoding="utf-8") as f:
         json.dump({
             "quelle": BASE_URL,
             "letzte_aktualisierung": datetime.now().isoformat(),
-            "anzahl_produkte": len(unique_produkte),
-            "produkte": unique_produkte
+            "anzahl_produkte": len(unique),
+            "produkte": unique
         }, f, ensure_ascii=False, indent=2)
-    print(f"💾 Gespeichert: {gesamt_datei}")
 
-    # 2. Hund-Produkte
-    hund_produkte = [p for p in unique_produkte if "hund" in p.get("kategorie", "").lower() or p.get("kategorie") == "alle"]
-    hund_datei = os.path.join(OUTPUT_DIR, "produkte_hund.json")
-    with open(hund_datei, "w", encoding="utf-8") as f:
+    hund = [p for p in unique if "hund" in p["kategorie"]]
+    with open(f"{OUTPUT_DIR}/produkte_hund.json", "w", encoding="utf-8") as f:
+        json.dump({"letzte_aktualisierung": datetime.now().isoformat(), "anzahl": len(hund), "produkte": hund}, f, ensure_ascii=False, indent=2)
+
+    katze = [p for p in unique if "katze" in p["kategorie"]]
+    with open(f"{OUTPUT_DIR}/produkte_katze.json", "w", encoding="utf-8") as f:
+        json.dump({"letzte_aktualisierung": datetime.now().isoformat(), "anzahl": len(katze), "produkte": katze}, f, ensure_ascii=False, indent=2)
+
+    with open(f"{OUTPUT_DIR}/zusammenfassung.json", "w", encoding="utf-8") as f:
         json.dump({
             "letzte_aktualisierung": datetime.now().isoformat(),
-            "anzahl": len(hund_produkte),
-            "produkte": hund_produkte
-        }, f, ensure_ascii=False, indent=2)
-    print(f"💾 Gespeichert: {hund_datei}")
-
-    # 3. Katzen-Produkte
-    katze_produkte = [p for p in unique_produkte if "katze" in p.get("kategorie", "").lower()]
-    katze_datei = os.path.join(OUTPUT_DIR, "produkte_katze.json")
-    with open(katze_datei, "w", encoding="utf-8") as f:
-        json.dump({
-            "letzte_aktualisierung": datetime.now().isoformat(),
-            "anzahl": len(katze_produkte),
-            "produkte": katze_produkte
-        }, f, ensure_ascii=False, indent=2)
-    print(f"💾 Gespeichert: {katze_datei}")
-
-    # 4. Zusammenfassung
-    summary_datei = os.path.join(OUTPUT_DIR, "zusammenfassung.json")
-    with open(summary_datei, "w", encoding="utf-8") as f:
-        json.dump({
-            "letzte_aktualisierung": datetime.now().isoformat(),
-            "gesamt_produkte": len(unique_produkte),
-            "hund_produkte": len(hund_produkte),
-            "katze_produkte": len(katze_produkte),
+            "gesamt_produkte": len(unique),
+            "hund_produkte": len(hund),
+            "katze_produkte": len(katze),
             "kategorien": {k: len(v) for k, v in ergebnisse.items()},
             "status": "erfolgreich"
         }, f, ensure_ascii=False, indent=2)
-    print(f"💾 Gespeichert: {summary_datei}")
 
-    print("\n🎉 Crawler fertig!")
-    return unique_produkte
+    print("🎉 Crawler fertig!")
 
 
 if __name__ == "__main__":
