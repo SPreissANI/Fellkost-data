@@ -1,20 +1,7 @@
 {
-  "letzte_aktualisierung": "2026-05-21T19:56:10.675595",
+  "letzte_aktualisierung": "2026-05-22T17:33:47.959151",
   "gesamt_produkte": 0,
   "hund_produkte": 0,
   "katze_produkte": 0,
-  "kategorien": {
-    "hund_alle": 0,
-    "hund_nassfutter": 0,
-    "hund_barf": 0,
-    "hund_flocken": 0,
-    "hund_snacks": 0,
-    "hund_ernaehrung": 0,
-    "katze_alle": 0,
-    "katze_nassfutter": 0,
-    "katze_barf": 0,
-    "katze_snacks": 0,
-    "katze_ernaehrung": 0
-  },
   "status": "erfolgreich"
 }
